@@ -110,3 +110,186 @@ Both of these types (and memory-bound) can benefit from concurrency. For cpu bou
 - Javascript (Single threade)
 - Java (fully multi-threaded)
 - Python (Only single thread in running state GIL limitation)
+
+### Throughput vs Latency
+
+- **Throughput:** Rate of doing work or how much work gets done per unit of time. Like in instagram how many photos mobile is able to download per unit of time
+- **Latency:** Time required to complete a task or produce a result(response time). Time required to download images from internet is latency
+
+- Given hundreds of file containing integer, give sum of all files. In a single process system, it will be done one by one synchronously. But in a concurrent system, we can spawn 100s of threads for each one file and combine their results.
+    - In this example, throughput is number of files processed per minute while latency is total time taken to completely process all the files. (In this example, throughput goes up while latency goes down!)
+    - Generally, throughput and latency have inverse relationship!
+
+### Critical Sections & Race Conditions
+
+When multiple threads of same program start executing same portion of code special care must be taken due to race conditions.
+
+- Critical Section: Any piece of code that can be executed concurrently and exposes any shared data or resources.
+- Race Conditions: When thread runs through critical sections without thread synchronisation. They race through critical section to read/write shared resources and depending on the order in which race is finished the program output changes.
+- Like if a thread checks for a state (test-then-act) and another thread changes that state which results in incorrect actio by the said thread. 
+
+[Broken-Synchronisation-Example]()
+[Fixed-Synchronisation-Example]()
+
+### Deadlocks, Liveness & Reentrant Locks
+
+While trying to avoid race conditions and guarding critical sections, logical follies can occur
+- Deadlock: When two or more threads arent able to make any progress as resource required by first thread is occupied by second and the one by second thread acquired by second.
+- Liveness: Ability of program to execute in a timely manner
+- Live-lock: When two threads react in response to actions by other thread without making any real progress. [Two person moving left-right to give each other the way resulting in blocking each other]
+- Starvation: A thread can never get CPU time or access to shared resources as other threads not let it acquire resources.
+
+Deadlock example:
+```
+void increment() {
+    acquire mutex_a
+    acquire mutex_b
+    // Work done here
+    release mutex_b
+    release mutex_a
+}
+
+void decrement() {
+    acquire mutex_b
+    acquire mutex_a
+    // work done here
+    release mutex_a
+    release mutex_b
+}
+```
+
+- Above code can easily result in a deadlock sometimes
+```
+T1 enters increment and acquires mutex_a
+T1 gets switched out
+T2 enters decrement and acquries mutex_b
+T2 gets switched out
+Now both threads are in a deadlock
+```
+[Deadlock-Example]()
+
+- Re-entrant lock: Allow for relocking or reentring of a synchronisation lock. [Reentrant-lock-Example]()
+    - Any object if locked in succession will result in a deadlock. 
+
+### Mutex vs Semaphore
+
+- Mutex: Used to guard shared data structures or any primitive types so that only single thread can access a resource or critical section. Strictly limited to serializing access to competing threads.
+- Semaphore: Used to limit access to a collection of resources. (limited permits to give out. Once permits over, process blocked till permite returned!). It can also be used for signalling amongst threads (to cooperatively work towards completing a task!)
+- Difference between mutex and binary semaphore
+    - In case of mutex, same thread that acquired it must release it otherwise undefined behavior. While in case of binary sempahore (any thread can return the permit) different threads can call acquire and release on threads
+    - Leads to concept of ownership. In mutex, a thread owns it till it releases it while a semaphore has no concept of ownership!
+- Semaphores can used for signalling amongst threads, like in case of producer/consumer problem where a producer signal consumer thread by increasing semaphore count to indicate something has been produced.
+- Semaphore also solves the issue of missed signals.
+[Semaphore car rental like while mutex lone jet on a runway!]
+
+### Mutex vs Monitor
+
+Moniter is exposed as a concurrency construct by some languages and used for locking and signalling. Moniters are language level constructs as opposed to mutex, semaphores. 
+
+Problem solved by moniters:
+- In a producer/consumer problem, when a thread needs a predicate to be true so it can proceed forward, like consumer can consume only when there is something to be consumed. What can consumer do? One option is to continuously wait for the predicate to be set true
+
+```
+// PsuedoCode
+void busyWait() {
+    acquire mutex
+    while (predicate == false) {
+        release mutex // To give other threads to acquire and set predicate to true
+        acquire mutex
+    }
+    do work
+    release mutex
+} // Works but wastes a lot of CPU cycles
+```
+
+##### Condition Variables
+
+- Essentially cv solves the problem we just encountered, we want to test for a predicate with a lock so no other thread can change it during the test but if its false then need to wait for it to change.
+- Condition variable exposes wait() and signal() methods. Upon calling wait(), thread is placed in a wait queue(set) and releases mutex. Another thread can now acquire the mutex and maybe changes the predicate upon which it will signal the waiting threads by using signal().
+- Upon signal, the woken up signal goes in ready state and placed in a ready queue (scheduler will schedule it!). Also, it can only run after signalling thread has released the mutex.
+
+```
+// CV psuedo code
+void consumer() {
+    acquire mutex
+    while (predicate == false) {
+        condVar.wait() // thread gets placed in wait queue
+    }
+    // do work
+    release mutex
+}
+
+void producer() {
+    acquire mutex
+    // do work
+    set predicate = true
+    condVar.signal() // waiting thread gets put into ready queue
+    release mutex
+}
+```
+- Cant we use if instead of while in consumer function? 
+    - What if a different thread got scheduled first and changed the predicate value, before signalled thread got the chance to execute => Need to check the predicate again!
+    - Use of loop necessitated by design choices of moniters
+    - On POSIX systems, spurious or fake wakeups are possible without a signal.
+
+- **Moniter** is made up of a mutex and one or more condition variables. It is an entity having an entry set and a waiting set. In java, each object is a moniter and implicitly has a lock and is a condition veriable too. Moniters allow threads to exercise mutual exclusion as well as cooperation by allowing them to wait and signal on conditions.
+
+### Java's Monitor & Hoare vs Mesa Monitors
+
+- Java's moniter: Every object is a cv with a hidden lock. Exposes wait(), notify() methods.
+    - Before wait(), notify() need to lock the hidden mutex. Done by using synchronised keyword otherwise results in ```IllegalMonitorStateException```
+    - Can only be called on an object once the calling thread becomes the owner of the moniter.
+    - Ownership can be achieved via:
+        1. Method that thread is executing has synchronised signature
+        2. Block that thread is executing is synchronised on which wait, notify will be called.
+        3. In case of class, static method which is synchronised
+
+```
+class BadSynchronization {
+
+    public static void main(String args[]) throws InterruptedException {
+        Object dummyObject = new Object();
+
+        // Attempting to call wait() on the object
+        // outside of a synchronized block.
+        dummyObject.wait();
+    }
+}
+```
+
+```
+class BadSynchronization {
+
+    public static void main(String args[]) {
+        Object dummyObject = new Object();
+        Object lock = new Object();
+
+        synchronized (lock) {
+            lock.notify();
+
+            // Attempting to call notify() on the object
+            // in synchronized block of another object
+            dummyObject.notify();
+        }
+    }
+}
+```
+
+### Hoare vs Mesa Monitors
+
+As discussed, the need for while loop while testing for predicate arises due to design choices of moniter.
+
+1. Mesa moniters: After signalling, another thread can be scheduled to change the value of predicate before woken up thread runs. Need to check predicate again!
+2. Hoare moniters: Signalling thread yields the moniter to woken up thread, which enters the moniter while the first one sits out! Here an if clause will suffice as no other thread gets a chance to change the predicate since no other thread gets to enter the monitor.
+
+Java, in particular, subscribes to Mesa monitor semantics and the developer is always expected to check for condition/predicate in a while loop. Mesa moniters are more efficient than hoare moniters.
+
+### Semaphore vs Monitor
+
+1. Interchangeable. Moniters take care of atomically acquiring locks whereas onus is on developer.
+2. Semaphores are lightweight when compared to moniters which are bloated. but when Semaphore and mutex pair as an alternative to a moniters, its easy to make mistakes!
+3. Java moniters enforce correct locking by throwing IllegalMonitorState exception object when cv methods invoked without acquiring locks. => Incorrect lock or no lock acquired
+4. A semaphore can allow several threads access to a given resource or critical section while in moniters only a single thread can own it.
+
+### Amdahls law
+
